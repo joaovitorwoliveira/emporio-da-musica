@@ -47,7 +47,23 @@ To be documented.
 
 ### Prompt strategy
 
-To be documented.
+Lia is a single system prompt built in code (`emporio/prompt.py`) from clearly separated sections: persona and tone, rules, store info, current date and status, the full policy text, and a clarifications block. The persona follows the manual's tone guideline (informal but professional, "a friend who knows music", short chat-style answers, no emojis) and its standard service flow: greeting, understanding, consulting the system, answering, closing. The price rules and the Identity Check rules from the order flow live in the rules section.
+
+**Policies go whole into the prompt, not through RAG.** The manual is about 11,000 characters (roughly 3k tokens), small enough to send with every request. Keeping it whole means the model always sees every rule, including the ones that interact (promotions do not stack with the PIX discount, the installment table disagrees with the installment tiers), whereas chunked retrieval could return one clause without the clause that qualifies it. RAG would add an embedding model, a vector store and chunking decisions for a problem this corpus does not have. The decision should be revisited if the corpus grows to many documents or to a size where per-request token cost matters.
+
+**The text is extracted from the PDF, not retyped.** `emporio/policies.py` reads `data/politicas_da_loja.pdf` with `pypdf` in layout mode and normalizes whitespace so it reads cleanly in a prompt: trailing spaces and runs of blank lines are collapsed, table column padding becomes ` | `, and the repeated page header and "Página N" footers are dropped. The wording itself is never edited, and the result is cached because the manual is static. A missing PDF or empty extraction fails loudly.
+
+**Contradictions are resolved in a clarifications block placed after the policy text**, so the original stays traceable and the correction is the last thing the model reads:
+
+- Installments: the tiers in section 3.1 win over the summary table in section 3 (up to 3x: installment of at least R$ 50,00; 4x to 6x: at least R$ 80,00; 7x to 12x: at least R$ 100,00).
+- The store e-mail is `contato@emporiodamusica.com.br`; the accented variant in the manual is a typo.
+- The WhatsApp and phone number is (67) 3341-4444; the other number in section 7 is not used.
+- The catalog in the system is the source of truth for what is for sale, not the "300+ instruments" claim.
+- Partner stores are never named when redirecting accessory requests: the manual says to suggest them "when possible", and there are none on record.
+
+**Date and open status are computed in code, not by the model.** The prompt states the reference date with its weekday and time in the store's timezone, plus whether the store is open and when it closes or, when closed, when the team is back. Opening hours are constants in `emporio/store_hours.py` (Monday to Friday 09:00 to 18:00, Saturday 09:00 to 13:00, Sunday closed; closing time itself counts as closed), so the model never has to work out weekdays. The module is reusable wherever the assistant needs to say when the team returns.
+
+**Three kinds of "no".** Out of Catalog: an instrument within the store's line that the product search does not find (a saxophone, a violin). Lia still searches first, then says the store has none available right now and offers the store contact; she never says the store does not sell that kind of instrument. Out of Scope accessories (strings, picks, cables, cases, pedals, amplifiers): she explains that the store works only with instruments and redirects the customer, without inventing partner names. Unrelated topics (weather, programming help): declined kindly and steered back to what she can help with. Questions about the store itself (address, hours, payment methods, exchanges, shipping, warranty) are answered from the policy text.
 
 ### Interface
 
@@ -87,7 +103,7 @@ To be documented.
 
 ## Limitations and future work
 
-To be documented.
+- There is no holiday calendar. The manual says the store is closed on holidays, but without a source of holiday dates the open or closed status only considers the weekday and the time; on a holiday that falls on a weekday, Lia would report the store as open.
 
 ## AI-assisted workflow
 

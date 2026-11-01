@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
+POLICIES_PDF_PATH = DATA_DIR / "politicas_da_loja.pdf"
 RUNTIME_DIR = PROJECT_ROOT / "runtime"
 STORE_DB_PATH = RUNTIME_DIR / "store.db"
 ENV_FILE = PROJECT_ROOT / ".env"
