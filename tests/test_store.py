@@ -2,6 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from langchain_core.tools import BaseTool
 
 from emporio.store import (
     ActivePromotion,
@@ -9,7 +10,7 @@ from emporio.store import (
     find_products,
     normalize_text,
 )
-from emporio.tools import build_tools, format_brl
+from emporio.tools import format_brl
 
 GD20_ID = 95
 GD20_NAME = "Takamine GD20 Dreadnought Natural"
@@ -99,10 +100,8 @@ def test_format_brl_uses_brazilian_separators():
     assert format_brl(Decimal("599.90")) == "R$ 599,90"
 
 
-def test_find_product_tool_returns_formatted_prices(store_db: Path):
-    [find_product] = build_tools(store_db)
-
-    result = find_product.invoke({"name": "takamine gd20"})
+def test_find_product_tool_returns_formatted_prices(tools: dict[str, BaseTool]):
+    result = tools["find_product"].invoke({"name": "takamine gd20"})
 
     assert result == {
         "products": [
@@ -117,9 +116,9 @@ def test_find_product_tool_returns_formatted_prices(store_db: Path):
     }
 
 
-def test_find_product_tool_reports_missing_criteria_to_the_model(store_db: Path):
-    [find_product] = build_tools(store_db)
-
-    result = find_product.invoke({})
+def test_find_product_tool_reports_missing_criteria_to_the_model(
+    tools: dict[str, BaseTool],
+):
+    result = tools["find_product"].invoke({})
 
     assert "product_id or a non-empty name" in result

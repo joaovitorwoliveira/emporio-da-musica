@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import unicodedata
 from contextlib import closing
@@ -10,6 +11,9 @@ PERCENT_DENOMINATOR = Decimal(100)
 MONEY_QUANTUM = Decimal("0.01")
 MAX_LOOKUP_RESULTS = 5
 LIKE_ESCAPE_CHAR = "\\"
+NON_DIGITS = re.compile(r"\D")
+BRAZIL_COUNTRY_CODE = "55"
+BRAZILIAN_NATIONAL_NUMBER_LENGTHS = (10, 11)
 
 SCHEMA = """
 CREATE TABLE categories (
@@ -37,6 +41,33 @@ CREATE TABLE promotions (
     discount_percent INTEGER NOT NULL,
     description TEXT NOT NULL,
     is_active INTEGER NOT NULL
+);
+
+CREATE TABLE customers (
+    customer_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL,
+    city TEXT NOT NULL
+);
+
+CREATE TABLE orders (
+    order_id INTEGER PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers (customer_id),
+    order_date TEXT NOT NULL,
+    status TEXT NOT NULL,
+    total_cents INTEGER NOT NULL,
+    payment_method TEXT NOT NULL,
+    tracking_code TEXT,
+    estimated_delivery TEXT,
+    notes TEXT
+);
+
+CREATE TABLE order_items (
+    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders (order_id),
+    product_id INTEGER NOT NULL REFERENCES products (product_id),
+    quantity INTEGER NOT NULL
 );
 """
 
@@ -80,6 +111,22 @@ def normalize_text(text: str) -> str:
         char for char in decomposed if not unicodedata.combining(char)
     )
     return " ".join(without_accents.casefold().split())
+
+
+def digits_only(text: str) -> str:
+    return NON_DIGITS.sub("", text)
+
+
+def normalize_email(text: str) -> str:
+    return text.strip().lower()
+
+
+def strip_country_code(digits: str) -> str:
+    has_country_code = (
+        digits.startswith(BRAZIL_COUNTRY_CODE)
+        and len(digits) - len(BRAZIL_COUNTRY_CODE) in BRAZILIAN_NATIONAL_NUMBER_LENGTHS
+    )
+    return digits[len(BRAZIL_COUNTRY_CODE) :] if has_country_code else digits
 
 
 def to_money(value: Decimal) -> Decimal:

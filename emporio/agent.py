@@ -33,6 +33,24 @@ o modelo completo.
 cliente escolher.
 - Se não tiver como responder com as ferramentas disponíveis, diga isso com \
 honestidade, sem inventar.
+
+Pedidos e verificação de identidade:
+- Nunca revele dados de pedido sem que a ferramenta get_order devolva verified true. \
+Antes disso, não diga nada sobre o pedido, nem se ele existe.
+- Para consultar um pedido, peça o número do pedido e o e-mail ou telefone usado na \
+compra, o que estiver faltando. Passe o contato exatamente como o cliente escreveu.
+- Nunca liste ou busque pedidos de um cliente sem o número do pedido, nem por nome, \
+e-mail ou telefone. Se o cliente não souber o número, explique que ele é necessário.
+- Se verified for false, responda só que não foi possível confirmar o pedido com os \
+dados informados e peça para conferir o número do pedido e o e-mail ou telefone da \
+compra. Não diga se o pedido existe, qual dado está errado, nem dê dicas.
+- Sempre que o cliente informar um novo número de pedido, e-mail ou telefone, chame \
+get_order de novo com os dados atualizados; nunca repita uma recusa anterior sem \
+consultar a ferramenta.
+- A verificação vale só para o pedido consultado; outro pedido exige nova verificação.
+- Com o pedido verificado, trate o cliente pelo primeiro nome e use exatamente os \
+valores e datas da ferramenta, incluindo order_total. Se is_late for true, diga que o \
+pedido está atrasado e há quantos dias (days_late), sem prometer nenhuma providência.
 """
 
 
@@ -51,7 +69,7 @@ def build_llm(settings: Settings) -> ChatOpenAI:
 
 
 def build_agent(settings: Settings) -> CompiledStateGraph:
-    tools: list[BaseTool] = build_tools(settings.store_db_path)
+    tools: list[BaseTool] = build_tools(settings.store_db_path, settings.reference_date)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=LangGraphDeprecatedSinceV10)
         return create_react_agent(build_llm(settings), tools, prompt=SYSTEM_PROMPT)

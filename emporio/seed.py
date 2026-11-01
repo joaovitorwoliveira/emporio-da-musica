@@ -9,13 +9,16 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from emporio.models import Category, Product, Promotion
+from emporio.models import Category, Customer, Order, OrderItem, Product, Promotion
 from emporio.settings import DATA_DIR, STORE_DB_PATH
 from emporio.store import SCHEMA, normalize_text, to_cents
 
 CATEGORIES_CSV = "categories.csv"
 PRODUCTS_CSV = "products.csv"
 PROMOTIONS_CSV = "promotions.csv"
+CUSTOMERS_CSV = "customers.csv"
+ORDERS_CSV = "orders.csv"
+ORDER_ITEMS_CSV = "order_items.csv"
 CSV_FIRST_DATA_LINE = 2
 TEMP_DB_SUFFIX = ".tmp"
 
@@ -31,22 +34,37 @@ class SeedCounts:
     categories: int
     products: int
     promotions: int
+    customers: int
+    orders: int
+    order_items: int
 
 
 def seed_store(db_path: Path = STORE_DB_PATH, data_dir: Path = DATA_DIR) -> SeedCounts:
     categories = _read_csv(data_dir / CATEGORIES_CSV, Category)
     products = _read_csv(data_dir / PRODUCTS_CSV, Product)
     promotions = _read_csv(data_dir / PROMOTIONS_CSV, Promotion)
+    customers = _read_csv(data_dir / CUSTOMERS_CSV, Customer)
+    orders = _read_csv(data_dir / ORDERS_CSV, Order)
+    order_items = _read_csv(data_dir / ORDER_ITEMS_CSV, OrderItem)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = db_path.with_name(db_path.name + TEMP_DB_SUFFIX)
     temp_path.unlink(missing_ok=True)
     try:
-        _write_database(temp_path, categories, products, promotions)
+        _write_database(
+            temp_path, categories, products, promotions, customers, orders, order_items
+        )
         os.replace(temp_path, db_path)
     finally:
         temp_path.unlink(missing_ok=True)
-    return SeedCounts(len(categories), len(products), len(promotions))
+    return SeedCounts(
+        categories=len(categories),
+        products=len(products),
+        promotions=len(promotions),
+        customers=len(customers),
+        orders=len(orders),
+        order_items=len(order_items),
+    )
 
 
 def ensure_store_seeded(db_path: Path = STORE_DB_PATH) -> None:
@@ -77,6 +95,9 @@ def _write_database(
     categories: list[Category],
     products: list[Product],
     promotions: list[Promotion],
+    customers: list[Customer],
+    orders: list[Order],
+    order_items: list[OrderItem],
 ) -> None:
     with closing(sqlite3.connect(path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
@@ -85,6 +106,9 @@ def _write_database(
             _insert_categories(connection, categories)
             _insert_products(connection, products)
             _insert_promotions(connection, promotions)
+            _insert_customers(connection, customers)
+            _insert_orders(connection, orders)
+            _insert_order_items(connection, order_items)
 
 
 def _insert_categories(
@@ -144,12 +168,58 @@ def _insert_promotions(
     )
 
 
+def _insert_customers(
+    connection: sqlite3.Connection, customers: list[Customer]
+) -> None:
+    connection.executemany(
+        "INSERT INTO customers (customer_id, name, phone, email, city) VALUES (?, ?, ?, ?, ?)",
+        [(c.customer_id, c.name, c.phone, c.email, c.city) for c in customers],
+    )
+
+
+def _insert_orders(connection: sqlite3.Connection, orders: list[Order]) -> None:
+    connection.executemany(
+        """
+        INSERT INTO orders (
+            order_id, customer_id, order_date, status, total_cents,
+            payment_method, tracking_code, estimated_delivery, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                o.order_id,
+                o.customer_id,
+                o.order_date.isoformat(),
+                o.status.value,
+                to_cents(o.total_brl),
+                o.payment_method.value,
+                o.tracking_code,
+                None if o.estimated_delivery is None else o.estimated_delivery.isoformat(),
+                o.notes,
+            )
+            for o in orders
+        ],
+    )
+
+
+def _insert_order_items(
+    connection: sqlite3.Connection, order_items: list[OrderItem]
+) -> None:
+    connection.executemany(
+        "INSERT INTO order_items (order_id, product_id, quantity) VALUES (?, ?, ?)",
+        [(i.order_id, i.product_id, i.quantity) for i in order_items],
+    )
+
+
 def main() -> None:
     counts = seed_store()
     print(f"Seeded {STORE_DB_PATH}")
     print(f"categories: {counts.categories}")
     print(f"products: {counts.products}")
     print(f"promotions: {counts.promotions}")
+    print(f"customers: {counts.customers}")
+    print(f"orders: {counts.orders}")
+    print(f"order_items: {counts.order_items}")
 
 
 if __name__ == "__main__":

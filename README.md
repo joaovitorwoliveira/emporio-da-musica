@@ -63,7 +63,13 @@ To be documented.
 
 ### Privacy and identity check
 
-To be documented.
+Order data is only reachable through the order tool, which needs two inputs: the order number and the e-mail or phone of that order's customer. The contact is compared against the customer who placed that order and nobody else, so a valid e-mail or phone of another customer never unlocks it, and the shared e-mail in the records (two customers use it) stays unambiguous. E-mails are compared case-insensitively. Phones are compared by digits only, so any formatting works, and a leading Brazilian country code (55) is accepted because every phone on file is a national number with area code; a partial number never matches.
+
+An unknown order, a wrong contact and a missing input all return the same generic result, so the assistant cannot confirm that an order exists. There is no way to list a customer's orders: without an order number the assistant asks for it. A successful check returns the order's status, date, items, total, payment method, tracking code and delivery estimate, plus the customer's first name; the full name, e-mail, phone and city never leave the database layer. The order total is the amount recorded by the store, even where it differs from the sum of the item prices.
+
+The check is enforced in code, not in the prompt: the model has no tool that returns an order without it. The prompt only tells the assistant how to behave around the check (ask for the missing data, never hint at which part failed). A shipped order past its estimated delivery date on the reference date is flagged as late, with the number of days.
+
+This is a prototype-level check: a single shared secret per order with no rate limiting or lockout. A production version would add attempt limits and a stronger factor, such as a code sent to the contact on file.
 
 ## Assumptions
 
