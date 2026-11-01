@@ -23,7 +23,9 @@ To be documented.
 
 ### LLM
 
-To be documented.
+Default model: Kimi K2.6 (`kimi-k2.6`, Moonshot AI), with its thinking mode switched off. It was picked after listing the models the account can use and running a two-turn tool-calling conversation through LangChain's OpenAI-compatible chat model and the LangGraph agent: the model calls the tool, uses the result, and keeps the context on the next turn. With thinking off a turn takes 1 to 3 seconds and about a quarter of the output tokens of the thinking variants, which fits a chat assistant. Thinking K2.6 and `kimi-k2.7-code` also worked but were 2 to 6 times slower; `kimi-k3` worked but is thinking-only and was the slowest of the four.
+
+Any OpenAI-compatible endpoint works by changing the three `LLM_*` variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`) in `.env`.
 
 ### Retrieval architecture
 
