@@ -6,14 +6,28 @@ Lia is a Brazilian Portuguese text-chat assistant for Empório da Música, a mus
 
 ```bash
 uv sync
-uv run pytest
+cp .env.example .env   # then set LLM_API_KEY
+uv run python -m emporio.seed
+uv run streamlit run emporio/app.py
 ```
 
-Running the app: to be documented.
+Run the tests with `uv run pytest`.
+
+The seed command validates the CSVs in `data/` and rebuilds the store database in `runtime/` from scratch, so it is safe to run again at any time. The app also creates the database on start when it does not exist.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in the LLM settings. Runtime files (store database, conversation database, escalation log) are written to the git-ignored `runtime/` directory; source data lives in `data/`.
+Copy `.env.example` to `.env` and fill in the settings. Only `LLM_API_KEY` is required; the app refuses to start without it.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LLM_BASE_URL` | `https://api.moonshot.ai/v1` | OpenAI-compatible chat endpoint |
+| `LLM_API_KEY` | none (required) | API key for that endpoint |
+| `LLM_MODEL` | `kimi-k2.6` | Model id; thinking is switched off only for `kimi-k2.6` |
+| `REFERENCE_DATE` | `2026-03-23T10:00` | The moment the assistant treats as "now", as `YYYY-MM-DDTHH:MM` in `STORE_TIMEZONE` |
+| `STORE_TIMEZONE` | `America/Campo_Grande` | IANA timezone of the store |
+
+Runtime files (store database, conversation database, escalation log) are written to the git-ignored `runtime/` directory; source data lives in `data/`.
 
 ## Technical decisions
 
