@@ -29,7 +29,9 @@ def build_llm(settings: Settings) -> ChatOpenAI:
 
 
 def build_agent(settings: Settings) -> CompiledStateGraph:
-    tools: list[BaseTool] = build_tools(settings.store_db_path, settings.reference_date)
+    tools: list[BaseTool] = build_tools(
+        settings.store_db_path, settings.escalation_log_path, settings.reference_date
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=LangGraphDeprecatedSinceV10)
         return create_react_agent(build_llm(settings), tools, prompt=build_system_prompt(settings))

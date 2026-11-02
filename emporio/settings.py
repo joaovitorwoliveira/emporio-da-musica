@@ -11,6 +11,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 POLICIES_PDF_PATH = DATA_DIR / "politicas_da_loja.pdf"
 RUNTIME_DIR = PROJECT_ROOT / "runtime"
 STORE_DB_PATH = RUNTIME_DIR / "store.db"
+ESCALATION_LOG_PATH = RUNTIME_DIR / "escalations.jsonl"
 ENV_FILE = PROJECT_ROOT / ".env"
 
 DEFAULT_LLM_BASE_URL = "https://api.moonshot.ai/v1"
@@ -33,6 +34,7 @@ class Settings:
     reference_date: datetime
     store_timezone: ZoneInfo
     store_db_path: Path
+    escalation_log_path: Path
 
 
 def load_settings() -> Settings:
@@ -47,6 +49,7 @@ def load_settings() -> Settings:
         ),
         store_timezone=store_timezone,
         store_db_path=STORE_DB_PATH,
+        escalation_log_path=ESCALATION_LOG_PATH,
     )
 
 

@@ -89,6 +89,22 @@ The check is enforced in code, not in the prompt: the model has no tool that ret
 
 This is a prototype-level check: a single shared secret per order with no rate limiting or lockout. A production version would add attempt limits and a stronger factor, such as a code sent to the contact on file.
 
+### Escalation
+
+When Lia cannot or must not resolve something alone, she calls `escalate_to_team`, which records an Escalation for the human team. The reason is a closed set, enforced in code (`emporio/escalations.py`): `complaint`, `cancellation_request`, `policy_doubt`, `late_order` and `other`. An unknown reason or a blank summary is rejected with a message that lists the valid reasons, so the model can correct itself.
+
+- **When she escalates.** Complaints (she listens with empathy first, as the manual's section 7.3 asks, then records), requests to cancel a pending or confirmed order (the manual has no cancellation policy, so nothing is promised and she never says the order will be cancelled), questions the manual does not answer (section 10: the team decides), shipped orders flagged as late, and anything else she should not settle alone.
+- **Identity Check still applies.** Anything tied to an order (a late order, a cancellation) is recorded with the order number only after the order tool verified the customer; a complaint without an order needs no check. The summary is short and factual and never carries the customer's e-mail or phone.
+- **The log.** Each Escalation is one JSON object per line in `runtime/escalations.jsonl` (git-ignored, created on first use) with `reason`, `summary`, `order_id` (null when there is none) and `recorded_at`. The timestamp is the Reference Date, not the real clock, because the Reference Date is the assistant's "now". Example:
+
+```json
+{"reason": "late_order", "summary": "Pedido enviado está atrasado e o cliente quer saber o que fazer.", "order_id": 8, "recorded_at": "2026-03-23T10:00:00-04:00"}
+```
+
+- **What the customer is told.** The tool returns, computed in code, the response time (24 business hours), whether the store is open and, when it is closed, when the team is back, using the same opening-hours module as the prompt. Lia relays exactly that.
+- **No claims beyond recording.** The prompt forbids saying anything was cancelled, solved, refunded or resent, and inventing protocol numbers. Lia only says the case was forwarded when the tool returned `recorded: true`; the tool itself returns no order data.
+- **Why a local file.** This is a prototype with no helpdesk to integrate, and a JSON-lines file is append-only, human-readable and trivial to inspect. In production the same call would create a ticket in a helpdesk or CRM queue, with the assignee, priority and customer notification that a file cannot provide.
+
 ## Assumptions
 
 ### Reference date

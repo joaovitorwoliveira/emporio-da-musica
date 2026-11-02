@@ -27,5 +27,14 @@ def reference_date() -> datetime:
 
 
 @pytest.fixture
-def tools(store_db: Path, reference_date: datetime) -> dict[str, BaseTool]:
-    return {tool.name: tool for tool in build_tools(store_db, reference_date)}
+def escalation_log(tmp_path: Path) -> Path:
+    return tmp_path / "runtime" / "escalations.jsonl"
+
+
+@pytest.fixture
+def tools(
+    store_db: Path, escalation_log: Path, reference_date: datetime
+) -> dict[str, BaseTool]:
+    return {
+        tool.name: tool for tool in build_tools(store_db, escalation_log, reference_date)
+    }

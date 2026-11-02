@@ -6,9 +6,11 @@ from typing import Any
 from langchain_core.tools import BaseTool, ToolException, tool
 
 from emporio.eligibility import CountsFrom, Right, RightEligibility
+from emporio.escalations import record_escalation
 from emporio.models import OrderStatus, PaymentMethod
 from emporio.orders import OrderDetails, find_verified_order
 from emporio.store import ProductPrice, find_products
+from emporio.store_hours import describe_store_status, format_moment, get_store_status
 
 THOUSANDS_SEPARATOR = "."
 DECIMAL_SEPARATOR = ","
@@ -50,6 +52,7 @@ NOT_DELIVERED_AFTER_SALES_MESSAGE = (
 CANCELLED_AFTER_SALES_MESSAGE = (
     "Pedido cancelado: não há direito de arrependimento, troca ou garantia a exercer."
 )
+ESCALATION_RESPONSE_TIME = "24 horas úteis"
 IDENTITY_CHECK_FAILED_MESSAGE = (
     "Não foi possível confirmar o pedido com os dados informados."
 )
@@ -142,7 +145,23 @@ def identity_check_failed_payload() -> dict[str, Any]:
     return {"verified": False, "message": IDENTITY_CHECK_FAILED_MESSAGE}
 
 
-def build_tools(store_db_path: Path, reference_date: datetime) -> list[BaseTool]:
+def escalation_payload(reason: str, reference_date: datetime) -> dict[str, Any]:
+    status = get_store_status(reference_date)
+    return {
+        "recorded": True,
+        "reason": reason,
+        "response_time": ESCALATION_RESPONSE_TIME,
+        "store_is_open": status.is_open,
+        "team_back_at": None
+        if status.next_opening is None
+        else format_moment(status.next_opening),
+        "store_status": describe_store_status(reference_date),
+    }
+
+
+def build_tools(
+    store_db_path: Path, escalation_log_path: Path, reference_date: datetime
+) -> list[BaseTool]:
     @tool
     def find_product(product_id: int | None = None, name: str | None = None) -> dict[str, Any]:
         """Look up the price of a product in the store catalog.
@@ -180,5 +199,36 @@ def build_tools(store_db_path: Path, reference_date: datetime) -> list[BaseTool]
             return identity_check_failed_payload()
         return order_payload(order)
 
+    @tool
+    def escalate_to_team(
+        reason: str, summary: str, order_id: int | None = None
+    ) -> dict[str, Any]:
+        """Record an escalation so the human team follows up with the customer.
+
+        This only records the case; it does not resolve, cancel, refund or change
+        anything, and it returns no order data. reason must be one of:
+        - complaint: the customer complains about a product, delivery or service.
+        - cancellation_request: the customer wants to cancel a pending or confirmed
+          order (the store has no cancellation policy, so nothing can be promised).
+        - policy_doubt: a question the store manual does not answer or a doubt about
+          how a policy applies; the team decides.
+        - late_order: a shipped order that get_order flagged with is_late true.
+        - other: any other case Lia cannot or must not resolve alone.
+        summary is a short, factual note in Portuguese written from the
+        conversation, without the customer's e-mail or phone. order_id is the order
+        number, only after get_order returned verified true for it; omit it for
+        cases without an order. Returns recorded true with the response time
+        (response_time), whether the store is open (store_is_open) and, when it is
+        closed, when the team is back (team_back_at).
+        """
+        try:
+            record = record_escalation(
+                escalation_log_path, reason, summary, order_id, reference_date
+            )
+        except ValueError as error:
+            raise ToolException(str(error)) from error
+        return escalation_payload(record.reason.value, reference_date)
+
     find_product.handle_tool_error = True
-    return [find_product, get_order]
+    escalate_to_team.handle_tool_error = True
+    return [find_product, get_order, escalate_to_team]
