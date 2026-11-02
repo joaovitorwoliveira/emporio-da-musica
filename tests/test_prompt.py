@@ -95,3 +95,17 @@ def test_prompt_covers_the_three_kinds_of_no(settings: Settings):
     assert "Nunca diga que a loja não vende esse tipo de instrumento" in prompt
     assert "Nunca invente nomes de lojas parceiras" in prompt
     assert "Assuntos sem relação com a loja" in prompt
+
+
+def test_prompt_has_the_after_sales_rules(settings: Settings):
+    prompt = build_system_prompt(settings)
+
+    assert "Devolução, troca e garantia de um pedido" in prompt
+    assert "campo after_sales devolvido pela get_order" in prompt
+    assert "Nunca calcule datas, prazos ou dias por conta própria" in prompt
+    assert "Se um direito trouxer o campo note, repasse o conteúdo da nota" in prompt
+    assert "em até 10 dias úteis" in prompt
+    assert "o frete de devolução é por conta da loja" in prompt
+    assert "a loja pode intermediar o processo" in prompt
+    assert "itens não elegíveis para troca da seção 4.4" in prompt
+    assert "Você não abre pedido de devolução, troca ou garantia" in prompt

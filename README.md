@@ -65,6 +65,8 @@ Lia is a single system prompt built in code (`emporio/prompt.py`) from clearly s
 
 **Three kinds of "no".** Out of Catalog: an instrument within the store's line that the product search does not find (a saxophone, a violin). Lia still searches first, then says the store has none available right now and offers the store contact; she never says the store does not sell that kind of instrument. Out of Scope accessories (strings, picks, cables, cases, pedals, amplifiers): she explains that the store works only with instruments and redirects the customer, without inventing partner names. Unrelated topics (weather, programming help): declined kindly and steered back to what she can help with. Questions about the store itself (address, hours, payment methods, exchanges, shipping, warranty) are answered from the policy text.
 
+**After-sales eligibility is computed in code, not by the model.** The order tool returns, for delivered orders, each right (withdrawal, preference exchange, defect exchange, legal warranty) with whether it is still open, its deadline and the days remaining or elapsed; for orders not yet delivered it says the windows start on receipt, and for cancelled orders that there is nothing to exercise. The prompt tells Lia to explain which rights are open and which expired using only those values, to state the policy conditions (packaging, refund method and timing, exclusions), to mention the manufacturer warranty after the 30-day defect window, and never to promise a return, exchange or warranty claim.
+
 ### Interface
 
 To be documented.
@@ -91,7 +93,11 @@ This is a prototype-level check: a single shared secret per order with no rate l
 
 ### Reference date
 
-To be documented.
+The assistant treats a configurable Reference Date as "now" for deadlines, opening hours and lateness, instead of the real clock. The store's orders end in March 2026; against the real date every return, exchange and warranty window would already be closed and a shipped order would look months late, so the policy logic could not be exercised meaningfully. The default is 2026-03-23 10:00 (the business day after the most recent order) in `America/Campo_Grande`, set through `REFERENCE_DATE` and `STORE_TIMEZONE`. In production, pointing it at the real clock is a configuration change.
+
+- **Receipt Date** is approximated by each order's estimated delivery date, because the records do not store when the customer actually received the order. A delivered order without an estimated delivery date is treated as a data error and fails loudly.
+- **Day counting** is defined once in `emporio/eligibility.py`: the deadline is the start date plus the window length in calendar days, and the deadline day itself is still open. On the deadline day the right has 0 days remaining; the next day it has expired by 1 day. Windows: Withdrawal Right and Preference Exchange 7 days from the Receipt Date, Defect Exchange 30 days from the order date, Legal Warranty 90 days from the Receipt Date.
+- **Consequence:** no single date makes every record consistent. On the default date no delivered order is still inside the 7-day Withdrawal Right (the most recent delivery estimate is 2026-02-17, whose window closed on 2026-02-24), and order 8 is past its estimated delivery. These are documented rather than hidden.
 
 ## Docker
 

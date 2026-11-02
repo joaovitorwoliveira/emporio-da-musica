@@ -5,6 +5,7 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, ToolException, tool
 
+from emporio.eligibility import CountsFrom, Right, RightEligibility
 from emporio.models import OrderStatus, PaymentMethod
 from emporio.orders import OrderDetails, find_verified_order
 from emporio.store import ProductPrice, find_products
@@ -28,6 +29,27 @@ PAYMENT_METHOD_LABELS = {
     PaymentMethod.CREDIT_6X: "cartão de crédito em até 6x",
     PaymentMethod.CREDIT_12X: "cartão de crédito em até 12x",
 }
+RIGHT_LABELS = {
+    Right.WITHDRAWAL: "Direito de arrependimento (devolução)",
+    Right.PREFERENCE_EXCHANGE: "Troca por preferência",
+    Right.DEFECT_EXCHANGE: "Troca por defeito de fabricação",
+    Right.LEGAL_WARRANTY: "Garantia legal (90 dias)",
+}
+COUNTS_FROM_LABELS = {
+    CountsFrom.RECEIPT_DATE: "data de recebimento (data estimada de entrega)",
+    CountsFrom.ORDER_DATE: "data do pedido",
+}
+DEFECT_EXCHANGE_EXPIRED_NOTE = (
+    "Depois do prazo, defeitos de fabricação passam pela garantia do fabricante; a "
+    "loja pode intermediar o processo se o cliente pedir."
+)
+NOT_DELIVERED_AFTER_SALES_MESSAGE = (
+    "Pedido ainda não entregue: os prazos de arrependimento, troca e garantia "
+    "começam a contar na data de recebimento."
+)
+CANCELLED_AFTER_SALES_MESSAGE = (
+    "Pedido cancelado: não há direito de arrependimento, troca ou garantia a exercer."
+)
 IDENTITY_CHECK_FAILED_MESSAGE = (
     "Não foi possível confirmar o pedido com os dados informados."
 )
@@ -59,6 +81,38 @@ def format_date(value: date) -> str:
     return value.strftime(DATE_FORMAT)
 
 
+def right_payload(eligibility: RightEligibility) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "right": RIGHT_LABELS[eligibility.right],
+        "counts_from": COUNTS_FROM_LABELS[eligibility.counts_from],
+        "deadline": format_date(eligibility.deadline),
+        "is_open": eligibility.is_open,
+    }
+    if eligibility.is_open:
+        payload["days_remaining"] = eligibility.days_remaining
+    else:
+        payload["days_since_deadline"] = eligibility.days_since_deadline
+        if eligibility.right is Right.DEFECT_EXCHANGE:
+            payload["note"] = DEFECT_EXCHANGE_EXPIRED_NOTE
+    return payload
+
+
+def after_sales_payload(order: OrderDetails) -> dict[str, Any]:
+    if order.status is OrderStatus.DELIVERED:
+        return {
+            "receipt_date": None
+            if order.estimated_delivery is None
+            else format_date(order.estimated_delivery),
+            "rights": [right_payload(eligibility) for eligibility in order.rights],
+        }
+    message = (
+        CANCELLED_AFTER_SALES_MESSAGE
+        if order.status is OrderStatus.CANCELLED
+        else NOT_DELIVERED_AFTER_SALES_MESSAGE
+    )
+    return {"message": message}
+
+
 def order_payload(order: OrderDetails) -> dict[str, Any]:
     return {
         "verified": True,
@@ -79,6 +133,7 @@ def order_payload(order: OrderDetails) -> dict[str, Any]:
             else format_date(order.estimated_delivery),
             "is_late": order.is_late,
             "days_late": order.days_late,
+            "after_sales": after_sales_payload(order),
         },
     }
 
@@ -113,7 +168,10 @@ def build_tools(store_db_path: Path, reference_date: datetime) -> list[BaseTool]
         against the customer who placed that order. Returns verified true with the
         order details (status, order date, items, order total, payment method,
         tracking code, estimated delivery, is_late and days_late) when the check
-        passes. Returns verified false with a generic message when it fails, whether
+        passes, plus after_sales: for delivered orders the receipt date and, for each
+        right (withdrawal, preference exchange, defect exchange, legal warranty),
+        whether it is still open, its deadline and the days remaining or elapsed;
+        for other orders a message about the windows. Returns verified false with a generic message when it fails, whether
         the order does not exist, the contact does not match or an input is missing;
         the failure never says which.
         """

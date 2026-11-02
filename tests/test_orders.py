@@ -230,4 +230,5 @@ def test_order_payload_has_only_the_expected_fields(tools: dict[str, BaseTool]):
         "estimated_delivery",
         "is_late",
         "days_late",
+        "after_sales",
     }

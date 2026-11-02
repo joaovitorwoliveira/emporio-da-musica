@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from emporio.eligibility import RightEligibility, calculate_rights
 from emporio.models import OrderStatus, PaymentMethod
 from emporio.store import (
     connect,
@@ -62,6 +63,7 @@ class OrderDetails:
     tracking_code: str | None
     estimated_delivery: date | None
     days_late: int
+    rights: tuple[RightEligibility, ...]
 
     @property
     def is_late(self) -> bool:
@@ -128,10 +130,11 @@ def _build_order_details(
         None if estimated_delivery is None else date.fromisoformat(estimated_delivery)
     )
     order_status = OrderStatus(status)
+    placed_on = date.fromisoformat(order_date)
     return OrderDetails(
         order_id=order_id,
         customer_first_name=customer_name.split()[0],
-        order_date=date.fromisoformat(order_date),
+        order_date=placed_on,
         status=order_status,
         items=_select_order_lines(connection, order_id),
         total=from_cents(total_cents),
@@ -139,6 +142,7 @@ def _build_order_details(
         tracking_code=tracking_code,
         estimated_delivery=delivery_date,
         days_late=calculate_days_late(order_status, delivery_date, reference_date),
+        rights=calculate_rights(order_status, placed_on, delivery_date, reference_date),
     )
 
 
