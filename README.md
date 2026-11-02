@@ -109,7 +109,46 @@ To be documented.
 
 ### Data handling
 
-To be documented.
+**Cleaned at load time.** Every CSV row goes through a Pydantic model before anything is stored (`emporio/records.py`, `emporio/models.py`), so a malformed row stops the seed with the file name and line instead of reaching the assistant. The cleaning is limited to representation: types are validated, the product `specs` JSON is parsed, customer phones are reduced to digits, e-mails are trimmed and lowercased, statuses and payment methods become enums, empty tracking code, delivery estimate and notes become null, and prices are stored as integer cents.
+
+**Historical records are never rewritten.** Totals, payment methods, statuses and order items are loaded exactly as they are in the CSVs. Anomalies are detected, reported and documented here, and the assistant's behavior around each one is decided in code or in the prompt, not by editing the data.
+
+**Seeing the report.** The seed command prints the data quality report after rebuilding the database:
+
+```bash
+uv run python -m emporio.seed
+```
+
+The same report can be produced on its own, reading the CSVs without touching the database:
+
+```bash
+uv run python -m emporio.data_quality
+```
+
+The detectors live in `emporio/data_quality.py` and a test pins the exact set found in the real data, so any change to the CSVs makes it fail until the report and this table are revisited.
+
+**Detected anomalies**
+
+| Anomaly | Records | How it is detected | Decision |
+|---|---|---|---|
+| Order total differs from the sum of item prices | Orders 3 (recorded R$ 3.450,00, items R$ 3.498,00) and 20 (recorded R$ 1.400,00, items R$ 1.488,00) | `order_items` has no unit price, so the item sum is the product's list price times the quantity | The recorded order total is authoritative and is what the assistant states |
+| Product coming soon in an order | Product 130 (Kala KA-ABP-CTG) in orders 3 (delivered) and 14 (pending) | Any order item whose product status is `coming_soon`; a product that is only out of stock is not an anomaly | The product is never offered as available (status wins over stock); the orders are shown as recorded |
+| PIX order without the 5% discount | Orders 1, 5, 10, 13 and 17 | A PIX order whose recorded total is above the list-price sum minus 5% (rounded half up); all five were recorded at exactly the list-price sum | Historical, not reprocessed. The discount is applied to new quotes only |
+| Installment below the minimum | Orders 9 (6x of R$ 58,32), 16 (6x of R$ 71,65) and 18 (12x of R$ 38,33) | A credit order whose recorded total fails the section 3.1 minimum for its number of installments, using the same rule as the payment tool | Historical, not judged by the assistant |
+| E-mail shared by two customers | Customers 11 and 43 (`bruno.martins@jmail.com`) | Customers grouped by lowercased e-mail | Safe, because the Identity Check compares the contact against the customer of the requested order only |
+| Category with no products | Categories 6 (woodwinds), 7 (brass) and 8 (orchestral strings) | Categories that no product references | The catalog is the source of truth: asking for those instruments is an Out of Catalog case |
+
+Assumptions behind the detectors: the item sum uses today's list prices, because the records do not keep the price at the time of the order, and a PIX order is not checked against promotions of the time for the same reason (none of the five PIX orders contains a product that has an Active Promotion today). An order can legitimately appear under more than one anomaly, for example order 3 in the total and coming-soon rows.
+
+**Policy manual inconsistencies**
+
+| Inconsistency | Resolution |
+|---|---|
+| The installment summary (up to 12x, R$ 100,00 minimum) disagrees with the tiers of section 3.1 | Section 3.1 wins because it is the more specific rule. See "Installment minimums" above for the tiers |
+| Section 3.1 says up to 3x has no minimum "exceto abaixo de R$ 50,00" | Read as: an installment below R$ 50,00 is not allowed for up to 3x |
+| The store e-mail appears with and without an accent in the domain | `contato@emporiodamusica.com.br`; the accented domain is treated as a typo |
+| Two WhatsApp numbers: (67) 3341-4444 (cover and section 1.2) and (67) 3321-4500 (section 7) | (67) 3341-4444, which appears on the cover and in section 1.2 as the store's phone/WhatsApp line |
+| The manual claims "300+ instruments" | The catalog has 65 products across 9 categories, three of them empty, and it is the source of truth |
 
 ### Privacy and identity check
 

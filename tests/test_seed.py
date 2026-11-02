@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from emporio.models import Customer, OrderStatus, PaymentMethod, ProductStatus
-from emporio.seed import SeedError, ensure_store_seeded, seed_store
+from emporio.records import SeedError
+from emporio.seed import ensure_store_seeded, seed_store
 from emporio.settings import DATA_DIR
 
 ACTIVE_PROMOTIONS_IN_DATA = 4

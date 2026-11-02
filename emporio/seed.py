@@ -1,32 +1,17 @@
-import csv
 import json
 import os
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
 
-from pydantic import BaseModel, ValidationError
-
+from emporio.data_quality import detect_anomalies, format_report
 from emporio.models import Category, Customer, Order, OrderItem, Product, Promotion
+from emporio.records import StoreRecords, load_store_records
 from emporio.settings import DATA_DIR, STORE_DB_PATH
 from emporio.store import SCHEMA, normalize_text, to_cents
 
-CATEGORIES_CSV = "categories.csv"
-PRODUCTS_CSV = "products.csv"
-PROMOTIONS_CSV = "promotions.csv"
-CUSTOMERS_CSV = "customers.csv"
-ORDERS_CSV = "orders.csv"
-ORDER_ITEMS_CSV = "order_items.csv"
-CSV_FIRST_DATA_LINE = 2
 TEMP_DB_SUFFIX = ".tmp"
-
-RowModel = TypeVar("RowModel", bound=BaseModel)
-
-
-class SeedError(Exception):
-    pass
 
 
 @dataclass(frozen=True)
@@ -40,30 +25,23 @@ class SeedCounts:
 
 
 def seed_store(db_path: Path = STORE_DB_PATH, data_dir: Path = DATA_DIR) -> SeedCounts:
-    categories = _read_csv(data_dir / CATEGORIES_CSV, Category)
-    products = _read_csv(data_dir / PRODUCTS_CSV, Product)
-    promotions = _read_csv(data_dir / PROMOTIONS_CSV, Promotion)
-    customers = _read_csv(data_dir / CUSTOMERS_CSV, Customer)
-    orders = _read_csv(data_dir / ORDERS_CSV, Order)
-    order_items = _read_csv(data_dir / ORDER_ITEMS_CSV, OrderItem)
+    records = load_store_records(data_dir)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = db_path.with_name(db_path.name + TEMP_DB_SUFFIX)
     temp_path.unlink(missing_ok=True)
     try:
-        _write_database(
-            temp_path, categories, products, promotions, customers, orders, order_items
-        )
+        _write_database(temp_path, records)
         os.replace(temp_path, db_path)
     finally:
         temp_path.unlink(missing_ok=True)
     return SeedCounts(
-        categories=len(categories),
-        products=len(products),
-        promotions=len(promotions),
-        customers=len(customers),
-        orders=len(orders),
-        order_items=len(order_items),
+        categories=len(records.categories),
+        products=len(records.products),
+        promotions=len(records.promotions),
+        customers=len(records.customers),
+        orders=len(records.orders),
+        order_items=len(records.order_items),
     )
 
 
@@ -73,42 +51,17 @@ def ensure_store_seeded(db_path: Path = STORE_DB_PATH) -> None:
     seed_store(db_path)
 
 
-def _read_csv(path: Path, model: type[RowModel]) -> list[RowModel]:
-    if not path.exists():
-        raise SeedError(f"Source data file not found: {path}")
-    with path.open(newline="", encoding="utf-8") as file:
-        rows = enumerate(csv.DictReader(file), start=CSV_FIRST_DATA_LINE)
-        return [_validate_row(path, line, row, model) for line, row in rows]
-
-
-def _validate_row(
-    path: Path, line: int, row: dict[str, str], model: type[RowModel]
-) -> RowModel:
-    try:
-        return model.model_validate(row)
-    except ValidationError as error:
-        raise SeedError(f"Invalid row at {path.name}:{line}: {error}") from error
-
-
-def _write_database(
-    path: Path,
-    categories: list[Category],
-    products: list[Product],
-    promotions: list[Promotion],
-    customers: list[Customer],
-    orders: list[Order],
-    order_items: list[OrderItem],
-) -> None:
+def _write_database(path: Path, records: StoreRecords) -> None:
     with closing(sqlite3.connect(path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(SCHEMA)
         with connection:
-            _insert_categories(connection, categories)
-            _insert_products(connection, products)
-            _insert_promotions(connection, promotions)
-            _insert_customers(connection, customers)
-            _insert_orders(connection, orders)
-            _insert_order_items(connection, order_items)
+            _insert_categories(connection, records.categories)
+            _insert_products(connection, records.products)
+            _insert_promotions(connection, records.promotions)
+            _insert_customers(connection, records.customers)
+            _insert_orders(connection, records.orders)
+            _insert_order_items(connection, records.order_items)
 
 
 def _insert_categories(
@@ -220,6 +173,8 @@ def main() -> None:
     print(f"customers: {counts.customers}")
     print(f"orders: {counts.orders}")
     print(f"order_items: {counts.order_items}")
+    print()
+    print(format_report(detect_anomalies(load_store_records(DATA_DIR))))
 
 
 if __name__ == "__main__":
