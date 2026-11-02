@@ -18,6 +18,18 @@ from emporio.eligibility import CountsFrom, Right, RightEligibility
 from emporio.escalations import record_escalation
 from emporio.models import Availability, OrderStatus, PaymentMethod
 from emporio.orders import OrderDetails, find_verified_order
+from emporio.payments import (
+    MAX_INSTALLMENTS,
+    PIX_DISCOUNT_PERCENT,
+    InstallmentCheck,
+    InstallmentRefusal,
+    check_installments,
+    installment_value,
+    max_installments,
+    pix_price,
+    require_positive_installments,
+    to_amount,
+)
 from emporio.store import ProductPrice
 from emporio.store_hours import describe_store_status, format_moment, get_store_status
 
@@ -74,6 +86,26 @@ UNKNOWN_CATEGORY_MESSAGE = (
 )
 IDENTITY_CHECK_FAILED_MESSAGE = (
     "Não foi possível confirmar o pedido com os dados informados."
+)
+PIX_PROMOTION_NOTE = (
+    f"Produto com promoção ativa: o desconto de {PIX_DISCOUNT_PERCENT}% do Pix não se "
+    "acumula com promoção (política 6.2), então o preço no Pix é o próprio preço final."
+)
+AMOUNT_WITHOUT_PIX_NOTE = (
+    f"Não há preço no Pix para um valor avulso: o desconto de {PIX_DISCOUNT_PERCENT}% "
+    "depende de cada produto estar ou não em promoção. Peça os produtos e consulte "
+    "um a um para obter o preço no Pix."
+)
+PAYMENT_UNAVAILABLE_MESSAGE = (
+    "Produto indisponível: não há condições de pagamento a oferecer. Explique a "
+    "indisponibilidade (availability) e, se quiser sugerir alternativas, use find_product."
+)
+ABOVE_MAXIMUM_MESSAGE = f"O máximo é {MAX_INSTALLMENTS}x sem juros."
+BELOW_MINIMUM_MESSAGE = (
+    "Em {installments}x a parcela ficaria abaixo do mínimo de {minimum} por parcela."
+)
+PRODUCT_AND_AMOUNT_MESSAGE = (
+    "Informe um produto (product_id ou name) ou um amount, não os dois."
 )
 
 
@@ -145,6 +177,78 @@ def unknown_category_payload(error: UnknownCategoryError) -> dict[str, Any]:
         "category_recognized": False,
         "message": UNKNOWN_CATEGORY_MESSAGE.format(wording=error.wording),
         "valid_categories": error.valid_categories,
+    }
+
+
+def requested_installments_payload(check: InstallmentCheck) -> dict[str, Any]:
+    payload: dict[str, Any] = {"installments": check.installments, "allowed": check.allowed}
+    if check.installment_value is not None:
+        payload["installment_value"] = format_brl(check.installment_value)
+        return payload
+    payload["reason"] = str(check.refusal)
+    if check.refusal is InstallmentRefusal.ABOVE_MAXIMUM:
+        payload["message"] = ABOVE_MAXIMUM_MESSAGE
+        return payload
+    if check.minimum_installment is None:
+        raise ValueError("A below-minimum refusal must carry the minimum installment.")
+    minimum = format_brl(check.minimum_installment)
+    payload["minimum_installment"] = minimum
+    payload["message"] = BELOW_MINIMUM_MESSAGE.format(
+        installments=check.installments, minimum=minimum
+    )
+    return payload
+
+
+def installments_payload(total: Decimal, requested: int | None) -> dict[str, Any]:
+    highest = max_installments(total)
+    payload: dict[str, Any] = {
+        "max_installments": highest,
+        "max_installment_value": format_brl(installment_value(total, highest)),
+    }
+    if requested is not None:
+        payload["requested_installments"] = requested_installments_payload(
+            check_installments(total, requested)
+        )
+    return payload
+
+
+def pix_payload(lookup: ProductLookup) -> dict[str, Any]:
+    final_price = lookup.price.final_price
+    if lookup.price.active_promotion is not None:
+        return {
+            "pix_price": format_brl(pix_price(final_price, has_active_promotion=True)),
+            "pix_discount_applied": False,
+            "pix_note": PIX_PROMOTION_NOTE,
+        }
+    return {
+        "pix_price": format_brl(pix_price(final_price, has_active_promotion=False)),
+        "pix_discount_applied": True,
+        "pix_discount_percent": PIX_DISCOUNT_PERCENT,
+    }
+
+
+def product_payment_payload(lookup: ProductLookup, requested: int | None) -> dict[str, Any]:
+    base = {
+        **product_price_payload(lookup.price),
+        "availability": lookup.availability.value,
+        "availability_label": AVAILABILITY_LABELS[lookup.availability],
+    }
+    if lookup.availability is not Availability.AVAILABLE:
+        return {**base, "payment_options_available": False, "message": PAYMENT_UNAVAILABLE_MESSAGE}
+    return {
+        **base,
+        "payment_options_available": True,
+        **pix_payload(lookup),
+        **installments_payload(lookup.price.final_price, requested),
+    }
+
+
+def amount_payment_payload(amount: Decimal, requested: int | None) -> dict[str, Any]:
+    return {
+        "amount": format_brl(amount),
+        "pix_price": None,
+        "pix_note": AMOUNT_WITHOUT_PIX_NOTE,
+        **installments_payload(amount, requested),
     }
 
 
@@ -317,6 +421,50 @@ def build_tools(
         return promotions_payload(result)
 
     @tool
+    def get_payment_options(
+        product_id: int | None = None,
+        name: str | None = None,
+        amount: float | None = None,
+        installments: int | None = None,
+    ) -> dict[str, Any]:
+        """Payment conditions with every value computed by the store rules: the only
+        source for a Pix price or an installment value. Never compute them yourself.
+
+        For one product provide product_id or name, exactly as in find_product (up
+        to 5 matches are returned in products). Each available product has
+        final_price (what the customer pays), pix_price, pix_discount_applied and
+        the maximum interest-free credit card installments: max_installments, each
+        of max_installment_value. Pix is 5% off the final_price only when the product
+        has no active promotion; with one (pix_discount_applied false) pix_price
+        equals final_price and pix_note says why. A product that is not available
+        has payment_options_available false and no payment values.
+
+        For a total the customer states (for example several items together) provide
+        amount in reais (1500 for R$ 1.500,00) instead of a product. The result has
+        the same installment fields but pix_price is null: the Pix discount depends
+        on each product's promotion, so ask for the products and look them up one by
+        one for a Pix price.
+
+        installments is optional: the number of installments the customer asks
+        about. requested_installments then says whether it is allowed and, if so,
+        installment_value; if not, the reason, a message and, when it is below the
+        minimum, minimum_installment. A single payment (1x) is always allowed.
+        """
+        try:
+            if installments is not None:
+                require_positive_installments(installments)
+            if amount is not None:
+                if product_id is not None or (name is not None and name.strip()):
+                    raise ToolException(PRODUCT_AND_AMOUNT_MESSAGE)
+                return amount_payment_payload(to_amount(amount), installments)
+            lookups = lookup_products(store_db_path, product_id=product_id, name=name)
+        except ValueError as error:
+            raise ToolException(str(error)) from error
+        return {
+            "products": [product_payment_payload(lookup, installments) for lookup in lookups]
+        }
+
+    @tool
     def get_order(order_id: int | None = None, contact: str | None = None) -> dict[str, Any]:
         """Look up an order after the Identity Check.
 
@@ -370,5 +518,13 @@ def build_tools(
     find_product.handle_tool_error = True
     search_catalog.handle_tool_error = True
     list_promotions.handle_tool_error = True
+    get_payment_options.handle_tool_error = True
     escalate_to_team.handle_tool_error = True
-    return [find_product, search_catalog, list_promotions, get_order, escalate_to_team]
+    return [
+        find_product,
+        search_catalog,
+        list_promotions,
+        get_order,
+        escalate_to_team,
+        get_payment_options,
+    ]

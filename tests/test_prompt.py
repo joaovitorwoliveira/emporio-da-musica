@@ -134,3 +134,13 @@ def test_prompt_has_the_after_sales_rules(settings: Settings):
     assert "a loja pode intermediar o processo" in prompt
     assert "itens não elegíveis para troca da seção 4.4" in prompt
     assert "Você não abre pedido de devolução, troca ou garantia" in prompt
+
+
+def test_prompt_sends_pix_and_installment_numbers_through_the_payment_tool(
+    settings: Settings,
+):
+    prompt = build_system_prompt(settings)
+
+    assert "get_payment_options" in prompt
+    assert "nunca os calcule" in prompt
+    assert "não calcule valores de parcelas" not in prompt

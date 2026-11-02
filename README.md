@@ -89,6 +89,16 @@ A product with no Active Promotion but with an ended one (for example the Takami
 
 `list_promotions` lists the Active Promotions on Available Products, with original price, discount percentage, promotion description and Final Price, ordered by discount (highest first) and then product id. It takes an optional category in the same wording as `search_catalog`, with the same `category_recognized: false` answer for unknown wording. A promotion on a product that is not available is never listed.
 
+### Payment options
+
+`get_payment_options` (`emporio/payments.py` for the rules, `emporio/tools.py` for the payload) is the only source of Pix prices and installment values, so the model never does the arithmetic. It takes either a product (`product_id` or `name`, resolved exactly like `find_product`, with up to 5 matches) or an `amount` in reais for a total the customer states, plus an optional `installments` for a specific number the customer asks about.
+
+- **Pix.** The Pix Price is the Final Price minus 5%, rounded half up to the cent, only when the product has no Active Promotion. With one, the Pix Price equals the Final Price and the payload says why (promotions do not stack, policy 6.2). An ended promotion has no effect.
+- **Installments.** The result carries the maximum interest-free installments and the value of each. A requested number gets `allowed`, the installment value when allowed, or the reason when refused (more than 12, or an installment below the minimum of its tier) together with the minimum. Fewer than 1 installment is rejected as a tool error.
+- **Installment value.** Total divided by the number of installments, rounded half up to the cent. The policy does not say how a leftover cent is distributed, so the value shown can differ from the total by a few cents when multiplied back (7x of R$ 2.199,00 shows R$ 314,14).
+- **Unavailable products.** An unavailable product returns its availability and `payment_options_available: false`, with no payment values; the assistant explains the availability instead of quoting conditions for something that cannot be bought.
+- **A bare amount has no Pix Price.** Whether the 5% applies depends on the promotion of each product, which an amount does not carry, so the tool returns `pix_price: null` with a note and the assistant asks for the products and looks them up one by one. This is one tool with an `amount` parameter instead of a second tool because the installment rule is the same in both cases.
+
 ### Interface
 
 To be documented.
@@ -136,6 +146,19 @@ The assistant treats a configurable Reference Date as "now" for deadlines, openi
 - **Receipt Date** is approximated by each order's estimated delivery date, because the records do not store when the customer actually received the order. A delivered order without an estimated delivery date is treated as a data error and fails loudly.
 - **Day counting** is defined once in `emporio/eligibility.py`: the deadline is the start date plus the window length in calendar days, and the deadline day itself is still open. On the deadline day the right has 0 days remaining; the next day it has expired by 1 day. Windows: Withdrawal Right and Preference Exchange 7 days from the Receipt Date, Defect Exchange 30 days from the order date, Legal Warranty 90 days from the Receipt Date.
 - **Consequence:** no single date makes every record consistent. On the default date no delivered order is still inside the 7-day Withdrawal Right (the most recent delivery estimate is 2026-02-17, whose window closed on 2026-02-24), and order 8 is past its estimated delivery. These are documented rather than hidden.
+
+### Installment minimums
+
+Section 3.1 says installments up to 3x have "sem valor mínimo de parcela (exceto abaixo de R$ 50,00)", while the summary table in section 3 says a credit card minimum of R$ 100,00. The interpretation is that section 3.1 wins over the summary table, as in the prompt's clarifications block, and that "exceto abaixo de R$ 50,00" means an installment below R$ 50,00 is not allowed. The tiers are therefore:
+
+| Installments | Minimum per installment |
+|---|---|
+| 1x (single card payment) | none, always allowed |
+| 2x to 3x | R$ 50,00 |
+| 4x to 6x | R$ 80,00 |
+| 7x to 12x | R$ 100,00 |
+
+The check is made on the exact total (`total >= installments x minimum`), so an installment of exactly R$ 50,00, R$ 80,00 or R$ 100,00 is allowed and one cent less in the total is not, even if the rounded installment value would display as the minimum. The maximum interest-free installments of a product is the largest number that passes. The rule about combining payment methods (for example Pix plus card above R$ 2.000,00) is left to the policy text and is not computed by the tool.
 
 ## Docker
 
