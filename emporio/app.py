@@ -2,15 +2,21 @@ import streamlit as st
 from langgraph.graph.state import CompiledStateGraph
 from openai import RateLimitError
 
-from emporio.agent import build_agent, reply
+from emporio.agent import build_agent, open_checkpointer, reply
+from emporio.conversations import (
+    ASSISTANT_ROLE,
+    USER_ROLE,
+    load_history,
+    new_conversation_id,
+    parse_conversation_id,
+)
 from emporio.seed import ensure_store_seeded
 from emporio.settings import Settings, SettingsError, load_settings
 
 PAGE_TITLE = "Lia | Empório da Música"
 INPUT_PLACEHOLDER = "Escreva sua mensagem"
-HISTORY_KEY = "history"
-USER_ROLE = "user"
-ASSISTANT_ROLE = "assistant"
+CONVERSATION_PARAM = "conversa"
+NEW_CONVERSATION_LABEL = "Nova conversa"
 GREETING = "Oi! Eu sou a Lia, da Empório da Música. Como posso ajudar?"
 RATE_LIMIT_MESSAGE = (
     "Recebi mensagens demais em pouco tempo e preciso de uma pausa. "
@@ -21,7 +27,7 @@ RATE_LIMIT_MESSAGE = (
 @st.cache_resource
 def get_agent(_settings: Settings) -> CompiledStateGraph:
     ensure_store_seeded(_settings.store_db_path)
-    return build_agent(_settings)
+    return build_agent(_settings, open_checkpointer(_settings.conversations_db_path))
 
 
 def load_settings_or_stop() -> Settings:
@@ -32,42 +38,51 @@ def load_settings_or_stop() -> Settings:
         st.stop()
 
 
+def start_new_conversation() -> str:
+    conversation_id = new_conversation_id()
+    st.query_params[CONVERSATION_PARAM] = conversation_id
+    return conversation_id
+
+
+def current_conversation_id() -> str:
+    conversation_id = parse_conversation_id(st.query_params.get(CONVERSATION_PARAM))
+    return conversation_id or start_new_conversation()
+
+
 def render_history(history: list[tuple[str, str]]) -> None:
     for role, content in history:
         with st.chat_message(role):
             st.markdown(content)
 
 
-def answer_customer(agent: CompiledStateGraph, history: list[tuple[str, str]]) -> None:
+def answer_customer(agent: CompiledStateGraph, conversation_id: str, message: str) -> None:
     with st.chat_message(ASSISTANT_ROLE):
         try:
             with st.spinner("Lia está digitando..."):
-                answer = reply(agent, history)
+                answer = reply(agent, conversation_id, message)
         except RateLimitError:
-            history.pop()
             st.warning(RATE_LIMIT_MESSAGE)
             return
         st.markdown(answer)
-    history.append((ASSISTANT_ROLE, answer))
 
 
 def main() -> None:
     st.set_page_config(page_title=PAGE_TITLE)
     st.title(PAGE_TITLE)
+    st.sidebar.button(NEW_CONVERSATION_LABEL, on_click=start_new_conversation)
     agent = get_agent(load_settings_or_stop())
-    history: list[tuple[str, str]] = st.session_state.setdefault(HISTORY_KEY, [])
+    conversation_id = current_conversation_id()
 
     with st.chat_message(ASSISTANT_ROLE):
         st.markdown(GREETING)
-    render_history(history)
+    render_history(load_history(agent, conversation_id))
 
     message = st.chat_input(INPUT_PLACEHOLDER)
     if not message:
         return
-    history.append((USER_ROLE, message))
     with st.chat_message(USER_ROLE):
         st.markdown(message)
-    answer_customer(agent, history)
+    answer_customer(agent, conversation_id, message)
 
 
 if __name__ == "__main__":

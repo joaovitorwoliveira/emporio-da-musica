@@ -162,6 +162,7 @@ def test_prompt_has_the_escalation_rules(reference_date: datetime):
         reference_date=reference_date,
         store_timezone=ZoneInfo(DEFAULT_STORE_TIMEZONE),
         store_db_path=Path("unused.db"),
+        conversations_db_path=Path("unused-conversations.db"),
         escalation_log_path=Path("unused.jsonl"),
     )
 

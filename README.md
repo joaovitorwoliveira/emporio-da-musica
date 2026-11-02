@@ -105,7 +105,14 @@ To be documented.
 
 ### Conversation history
 
-To be documented.
+A conversation survives a page reload. Each visit gets a random UUID, written to the URL as `?conversa=<id>`; the agent is compiled with LangGraph's SQLite checkpointer and uses that id as the thread id, so every turn is saved to `runtime/conversations.db` and reopening the same URL, even after restarting the app, shows the full history again. The "Nova conversa" button in the sidebar switches to a new id and an empty chat; the old URL still opens the old conversation. An id in the URL that is not a UUID is ignored and replaced by a new one.
+
+- **Why SQLite.** It is embedded, needs no server, and the checkpointer ships with LangGraph, so persistence is one file in the runtime directory. The connection is shared across Streamlit's script threads; the checkpointer serializes access to it with a lock.
+- **Why a separate database from the store data.** The store database is rebuilt from the CSVs by the seed command and can be thrown away at any time. Conversations are user state with a different lifecycle: they must survive a reseed and must never be wiped by it.
+- **What is stored and shown.** The checkpoint keeps the whole exchange, including tool calls and tool results, so the model has the full context on the next turn. The chat shows only the customer's messages and Lia's answers. The greeting is a UI element and is not stored.
+- **Failed turns.** If the model call fails (a rate limit, a network error), the messages of that turn are removed from the saved conversation. Otherwise the customer message, or a tool call without its result, would stay in the history and break the next request. The customer sees the wait message and can send the message again.
+- **Access.** Anyone who has the link can read and continue that conversation, since the id is the only key. That is acceptable for a prototype; it is not a privacy boundary.
+- **In production.** A server database checkpointer (for example Postgres) instead of a local file, conversations tied to an authenticated session instead of an id in the URL, and a retention policy for how long and what is kept.
 
 ### Data handling
 

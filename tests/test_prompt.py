@@ -27,6 +27,7 @@ def settings(reference_date: datetime) -> Settings:
         reference_date=reference_date,
         store_timezone=ZoneInfo(DEFAULT_STORE_TIMEZONE),
         store_db_path=Path("unused.db"),
+        conversations_db_path=Path("unused-conversations.db"),
         escalation_log_path=Path("unused.jsonl"),
     )
 
