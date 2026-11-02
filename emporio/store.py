@@ -171,7 +171,7 @@ def find_products(
         raise ValueError("Provide a product_id or a non-empty name to look up a product.")
     with closing(connect(db_path)) as connection:
         rows = _select_product_rows(connection, product_id, name)
-        return [_build_product_price(connection, row) for row in rows]
+        return [build_product_price(connection, row) for row in rows]
 
 
 def _select_product_rows(
@@ -190,7 +190,7 @@ def _escape_like(text: str) -> str:
     return escaped.replace("%", f"{LIKE_ESCAPE_CHAR}%").replace("_", f"{LIKE_ESCAPE_CHAR}_")
 
 
-def _build_product_price(
+def build_product_price(
     connection: sqlite3.Connection, row: tuple[int, str, int]
 ) -> ProductPrice:
     product_id, name, price_cents = row

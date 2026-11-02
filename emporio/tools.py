@@ -5,6 +5,12 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, ToolException, tool
 
+from emporio.catalog import (
+    CatalogProduct,
+    CatalogSearchResult,
+    UnknownCategoryError,
+    search_products,
+)
 from emporio.eligibility import CountsFrom, Right, RightEligibility
 from emporio.escalations import record_escalation
 from emporio.models import OrderStatus, PaymentMethod
@@ -53,6 +59,10 @@ CANCELLED_AFTER_SALES_MESSAGE = (
     "Pedido cancelado: não há direito de arrependimento, troca ou garantia a exercer."
 )
 ESCALATION_RESPONSE_TIME = "24 horas úteis"
+UNKNOWN_CATEGORY_MESSAGE = (
+    "Nenhuma categoria da loja corresponde a {wording!r}. Use uma das categorias de "
+    "valid_categories ou busque pelo nome com find_product."
+)
 IDENTITY_CHECK_FAILED_MESSAGE = (
     "Não foi possível confirmar o pedido com os dados informados."
 )
@@ -77,6 +87,28 @@ def product_price_payload(product: ProductPrice) -> dict[str, Any]:
             "discount_percent": promotion.discount_percent,
         },
         "final_price": format_brl(product.final_price),
+    }
+
+
+def catalog_product_payload(product: CatalogProduct) -> dict[str, Any]:
+    return {**product_price_payload(product.price), "category": product.category}
+
+
+def catalog_search_payload(result: CatalogSearchResult) -> dict[str, Any]:
+    return {
+        "category": result.category,
+        "products": [catalog_product_payload(p) for p in result.products],
+        "total_matches": result.total_matches,
+        "returned": len(result.products),
+        "has_more": result.total_matches > len(result.products),
+    }
+
+
+def unknown_category_payload(error: UnknownCategoryError) -> dict[str, Any]:
+    return {
+        "category_recognized": False,
+        "message": UNKNOWN_CATEGORY_MESSAGE.format(wording=error.wording),
+        "valid_categories": error.valid_categories,
     }
 
 
@@ -179,6 +211,44 @@ def build_tools(
         return {"products": [product_price_payload(p) for p in products]}
 
     @tool
+    def search_catalog(
+        category: str | None = None,
+        max_price: float | None = None,
+        text: str | None = None,
+    ) -> dict[str, Any]:
+        """Browse the catalog with filters; use it for open questions such as "quais
+        violões até R$ 1000?" or "tem ukulele?". For the price of one specific product
+        use find_product instead.
+
+        At least one filter is required. category is the customer's wording ("violão",
+        "violões", "ukulele", "guitarra", "teclado", "sax"...), matched ignoring case
+        and accents; the result echoes the store category it resolved to. If the
+        wording matches no store category the result has category_recognized false and
+        the list valid_categories. max_price is a positive number in reais (1000 for
+        R$ 1.000,00) and is compared with the final_price, so promotions count. text
+        narrows by words that must all appear in the product name or description.
+        Only products for sale right now are returned (stock is not shown). Each
+        product has original_price, active_promotion (null when there is none) and
+        final_price, which is what the customer pays, sorted by final_price ascending.
+        The list is capped: total_matches is the full count, returned is how many are
+        listed and has_more is true when there are others. An empty products list means
+        nothing is available right now with those filters; with only a category it
+        means the store has nothing available in that category.
+        """
+        try:
+            result = search_products(
+                store_db_path,
+                category=category,
+                max_price=None if max_price is None else Decimal(str(max_price)),
+                text=text,
+            )
+        except UnknownCategoryError as error:
+            return unknown_category_payload(error)
+        except ValueError as error:
+            raise ToolException(str(error)) from error
+        return catalog_search_payload(result)
+
+    @tool
     def get_order(order_id: int | None = None, contact: str | None = None) -> dict[str, Any]:
         """Look up an order after the Identity Check.
 
@@ -230,5 +300,6 @@ def build_tools(
         return escalation_payload(record.reason.value, reference_date)
 
     find_product.handle_tool_error = True
+    search_catalog.handle_tool_error = True
     escalate_to_team.handle_tool_error = True
-    return [find_product, get_order, escalate_to_team]
+    return [find_product, search_catalog, get_order, escalate_to_team]

@@ -90,6 +90,15 @@ def test_prompt_keeps_price_and_order_rules(settings: Settings):
     assert "A verificação vale só para o pedido consultado" in prompt
 
 
+def test_prompt_guides_catalog_search(settings: Settings):
+    prompt = build_system_prompt(settings)
+
+    assert "use search_catalog com a categoria e o preço máximo" in prompt
+    assert "nunca cite produtos que ela não devolveu" in prompt
+    assert "Se has_more for true" in prompt
+    assert "Se category_recognized for false" in prompt
+
+
 def test_prompt_covers_the_three_kinds_of_no(settings: Settings):
     prompt = build_system_prompt(settings)
 

@@ -67,6 +67,18 @@ Lia is a single system prompt built in code (`emporio/prompt.py`) from clearly s
 
 **After-sales eligibility is computed in code, not by the model.** The order tool returns, for delivered orders, each right (withdrawal, preference exchange, defect exchange, legal warranty) with whether it is still open, its deadline and the days remaining or elapsed; for orders not yet delivered it says the windows start on receipt, and for cancelled orders that there is nothing to exercise. The prompt tells Lia to explain which rights are open and which expired using only those values, to state the policy conditions (packaging, refund method and timing, exclusions), to mention the manufacturer warranty after the 30-day defect window, and never to promise a return, exchange or warranty claim.
 
+### Catalog search
+
+Besides the exact lookup (`find_product`, by id or partial name), the assistant has `search_catalog` for open questions such as "quais violões disponíveis até R$ 1000?". It takes any of three filters, at least one required (`emporio/catalog.py`):
+
+- **Category**, in the customer's wording. The text is normalized (lowercase, no accents) and matched against the store's category names plus a small alias table (`violão`, `violões`, `ukulele`, `guitarras`, `sax`, `flauta`, `trompete`, `violino`, ...). A wording that matches no category does not return everything: the tool answers `category_recognized: false` with the list of valid categories so the assistant can ask. A known category with nothing available returns an empty list, which the prompt treats as Out of Catalog.
+- **Maximum price**, a positive number in reais, applied to the Final Price, so a product whose list price is above the limit but whose Active Promotion brings it under is included. The Final Price comes from the same function the product lookup uses.
+- **Free text**, words that must all appear in the product name or description (accents and case ignored).
+
+Only Available Products are returned: active status and stock above zero. Discontinued, coming-soon and out-of-stock products never show up, and stock quantities are not exposed. Each result carries the original price, the Active Promotion (description and percentage, when any) and the Final Price. Results are ordered by Final Price and then product id, and capped at 15; the payload reports `total_matches`, `returned` and `has_more` so the assistant can say that more products matched and offer to narrow the search.
+
+The search itself is a fixed parameterized query for availability and category. The price and text filters run in Python on those rows because the Final Price depends on the best Active Promotion per product and descriptions have no normalized column; with a catalog of this size that is simpler than duplicating the discount rule in SQL.
+
 ### Interface
 
 To be documented.
