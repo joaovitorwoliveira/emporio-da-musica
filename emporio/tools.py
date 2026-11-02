@@ -8,14 +8,17 @@ from langchain_core.tools import BaseTool, ToolException, tool
 from emporio.catalog import (
     CatalogProduct,
     CatalogSearchResult,
+    ProductLookup,
     UnknownCategoryError,
+    list_active_promotions,
+    lookup_products,
     search_products,
 )
 from emporio.eligibility import CountsFrom, Right, RightEligibility
 from emporio.escalations import record_escalation
-from emporio.models import OrderStatus, PaymentMethod
+from emporio.models import Availability, OrderStatus, PaymentMethod
 from emporio.orders import OrderDetails, find_verified_order
-from emporio.store import ProductPrice, find_products
+from emporio.store import ProductPrice
 from emporio.store_hours import describe_store_status, format_moment, get_store_status
 
 THOUSANDS_SEPARATOR = "."
@@ -36,6 +39,12 @@ PAYMENT_METHOD_LABELS = {
     PaymentMethod.CREDIT_3X: "cartão de crédito em até 3x",
     PaymentMethod.CREDIT_6X: "cartão de crédito em até 6x",
     PaymentMethod.CREDIT_12X: "cartão de crédito em até 12x",
+}
+AVAILABILITY_LABELS = {
+    Availability.AVAILABLE: "disponível",
+    Availability.OUT_OF_STOCK: "esgotado no momento",
+    Availability.DISCONTINUED: "fora de linha (descontinuado)",
+    Availability.COMING_SOON: "em breve (sem data de lançamento)",
 }
 RIGHT_LABELS = {
     Right.WITHDRAWAL: "Direito de arrependimento (devolução)",
@@ -92,6 +101,33 @@ def product_price_payload(product: ProductPrice) -> dict[str, Any]:
 
 def catalog_product_payload(product: CatalogProduct) -> dict[str, Any]:
     return {**product_price_payload(product.price), "category": product.category}
+
+
+def product_lookup_payload(lookup: ProductLookup) -> dict[str, Any]:
+    ended = lookup.ended_promotion
+    payload = {
+        **product_price_payload(lookup.price),
+        "availability": lookup.availability.value,
+        "availability_label": AVAILABILITY_LABELS[lookup.availability],
+        "ended_promotion": None
+        if ended is None
+        else {"description": ended.description, "discount_percent": ended.discount_percent},
+    }
+    if lookup.alternatives is None:
+        return payload
+    return {
+        **payload,
+        "alternatives": [catalog_product_payload(p) for p in lookup.alternatives.products],
+        "alternatives_in_price_range": lookup.alternatives.in_price_range,
+    }
+
+
+def promotions_payload(result: CatalogSearchResult) -> dict[str, Any]:
+    return {
+        "category": result.category,
+        "promotions": [catalog_product_payload(p) for p in result.products],
+        "total": result.total_matches,
+    }
 
 
 def catalog_search_payload(result: CatalogSearchResult) -> dict[str, Any]:
@@ -196,19 +232,32 @@ def build_tools(
 ) -> list[BaseTool]:
     @tool
     def find_product(product_id: int | None = None, name: str | None = None) -> dict[str, Any]:
-        """Look up the price of a product in the store catalog.
+        """Look up one product in the store catalog: price, availability and promotions.
 
-        Provide either product_id or name. The name may be partial and is matched
-        ignoring case and accents (e.g. "takamine gd20"). Returns up to 5 matching
+        Provide either product_id or name. Pass only brand and model as the name
+        (e.g. "takamine gd20", "kala ka-abp-ctg"), not the instrument type: it is
+        matched as a substring ignoring case and accents. Returns up to 5 matching
         products, each with original_price, active_promotion (null when there is
         none) and final_price, which is what the customer pays. An empty list means
         no product matched.
+
+        availability is one of available, out_of_stock, discontinued or coming_soon
+        (availability_label has the Portuguese wording); only available products can
+        be bought. coming_soon has no release date. When the product has no active
+        promotion but had one that ended, ended_promotion has its description and
+        discount_percent; it is no longer valid and final_price already ignores it.
+        For a product that is not available, alternatives lists up to 3 available
+        products of the same category (same fields as search_catalog results), the
+        nearest in price first. alternatives_in_price_range is true when they are
+        within 30% of the product's price; when false, none costs about the same and
+        these are just the closest-priced options of the category. An empty
+        alternatives list means the category has no available product.
         """
         try:
-            products = find_products(store_db_path, product_id=product_id, name=name)
+            lookups = lookup_products(store_db_path, product_id=product_id, name=name)
         except ValueError as error:
             raise ToolException(str(error)) from error
-        return {"products": [product_price_payload(p) for p in products]}
+        return {"products": [product_lookup_payload(lookup) for lookup in lookups]}
 
     @tool
     def search_catalog(
@@ -247,6 +296,25 @@ def build_tools(
         except ValueError as error:
             raise ToolException(str(error)) from error
         return catalog_search_payload(result)
+
+    @tool
+    def list_promotions(category: str | None = None) -> dict[str, Any]:
+        """List the active promotions, the answer to "o que está em promoção?".
+
+        Only products for sale right now with an active promotion are listed, ordered
+        by discount_percent (highest first). Each has original_price,
+        active_promotion (description and discount_percent) and final_price, which is
+        what the customer pays. category is optional, in the customer's wording
+        ("violão", "ukulele"...), same matching as search_catalog; if it matches no
+        store category the result has category_recognized false and valid_categories.
+        total is how many promotions are listed; an empty list means there is no
+        active promotion (in that category, when one was given).
+        """
+        try:
+            result = list_active_promotions(store_db_path, category=category)
+        except UnknownCategoryError as error:
+            return unknown_category_payload(error)
+        return promotions_payload(result)
 
     @tool
     def get_order(order_id: int | None = None, contact: str | None = None) -> dict[str, Any]:
@@ -301,5 +369,6 @@ def build_tools(
 
     find_product.handle_tool_error = True
     search_catalog.handle_tool_error = True
+    list_promotions.handle_tool_error = True
     escalate_to_team.handle_tool_error = True
-    return [find_product, search_catalog, get_order, escalate_to_team]
+    return [find_product, search_catalog, list_promotions, get_order, escalate_to_team]

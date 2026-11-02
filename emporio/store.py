@@ -89,9 +89,23 @@ ORDER BY discount_percent DESC, promotion_id
 LIMIT 1
 """
 
+# Same tie-break as the active one, so the choice is deterministic.
+SELECT_ENDED_PROMOTION = """
+SELECT description, discount_percent FROM promotions
+WHERE product_id = ? AND is_active = 0
+ORDER BY discount_percent DESC, promotion_id
+LIMIT 1
+"""
+
 
 @dataclass(frozen=True)
 class ActivePromotion:
+    description: str
+    discount_percent: int
+
+
+@dataclass(frozen=True)
+class EndedPromotion:
     description: str
     discount_percent: int
 
@@ -212,3 +226,12 @@ def _select_active_promotion(
     if row is None:
         return None
     return ActivePromotion(description=row[0], discount_percent=row[1])
+
+
+def select_ended_promotion(
+    connection: sqlite3.Connection, product_id: int
+) -> EndedPromotion | None:
+    row = connection.execute(SELECT_ENDED_PROMOTION, (product_id,)).fetchone()
+    if row is None:
+        return None
+    return EndedPromotion(description=row[0], discount_percent=row[1])

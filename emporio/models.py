@@ -17,6 +17,25 @@ class ProductStatus(StrEnum):
     COMING_SOON = "coming_soon"
 
 
+class Availability(StrEnum):
+    AVAILABLE = "available"
+    OUT_OF_STOCK = "out_of_stock"
+    DISCONTINUED = "discontinued"
+    COMING_SOON = "coming_soon"
+
+
+def classify_availability(status: ProductStatus, stock_quantity: int) -> Availability:
+    """Status wins over stock: the data has a coming-soon and a discontinued product
+    with units in stock, and neither may be offered as available."""
+    if status is ProductStatus.DISCONTINUED:
+        return Availability.DISCONTINUED
+    if status is ProductStatus.COMING_SOON:
+        return Availability.COMING_SOON
+    if stock_quantity > 0:
+        return Availability.AVAILABLE
+    return Availability.OUT_OF_STOCK
+
+
 class OrderStatus(StrEnum):
     PENDING = "pending"
     CONFIRMED = "confirmed"

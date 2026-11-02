@@ -79,6 +79,16 @@ Only Available Products are returned: active status and stock above zero. Discon
 
 The search itself is a fixed parameterized query for availability and category. The price and text filters run in Python on those rows because the Final Price depends on the best Active Promotion per product and descriptions have no normalized column; with a catalog of this size that is simpler than duplicating the discount rule in SQL.
 
+### Unavailable products, alternatives and promotions
+
+The product lookup (`find_product`) reports an explicit availability reason: `available`, `out_of_stock`, `discontinued` or `coming_soon`, with a Portuguese label. One function (`classify_availability` in `emporio/models.py`) defines it and the catalog search uses the same function, so "Available" has a single definition. The product status wins over stock: `coming_soon` is "em breve" and `discontinued` stays discontinued even when the database shows units in stock, and an `active` product with zero stock is out of stock. The data has two such anomalies (the Kala KA-ABP-CTG ukulele is coming soon with 2 units, the Ibanez Bass 2X is discontinued with 13), and the decision is to trust the status and never offer them as available. A coming-soon product is "em breve" with no date, and stock quantities are never exposed.
+
+For an unavailable product the lookup also returns up to 3 alternatives: Available Products of the same category whose Final Price is within 30% of the unavailable product's list price, ordered by closeness of price and then product id (`emporio/catalog.py`, `ALTERNATIVE_PRICE_TOLERANCE_PERCENT` and `MAX_ALTERNATIVES`). They carry the same price fields as search results. When nothing is in that range (the Ibanez Bass 2X costs R$ 441,00 and the cheapest available bass is above R$ 7.000), the lookup falls back to the closest-priced Available Products of the category and sets `alternatives_in_price_range` to false, which the prompt tells the assistant to say plainly instead of presenting them as equivalents. The list is empty only when the category has nothing available.
+
+A product with no Active Promotion but with an ended one (for example the Takamine GD20) carries `ended_promotion` (description and percentage; the highest percentage, then the lowest promotion id). The assistant uses it only when the customer asks about a promotion or discount: it says the promotion is no longer active and gives the current price, and never offers or applies it. The Final Price never includes it.
+
+`list_promotions` lists the Active Promotions on Available Products, with original price, discount percentage, promotion description and Final Price, ordered by discount (highest first) and then product id. It takes an optional category in the same wording as `search_catalog`, with the same `category_recognized: false` answer for unknown wording. A promotion on a product that is not available is never listed.
+
 ### Interface
 
 To be documented.

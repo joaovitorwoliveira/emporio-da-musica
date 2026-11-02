@@ -99,6 +99,21 @@ def test_prompt_guides_catalog_search(settings: Settings):
     assert "Se category_recognized for false" in prompt
 
 
+def test_prompt_guides_unavailable_products_and_promotions(settings: Settings):
+    prompt = build_system_prompt(settings)
+
+    assert "Só diga que um produto pode ser comprado se for available" in prompt
+    assert "esgotado no momento" in prompt
+    assert "sem prometer reposição nem previsão de chegada" in prompt
+    assert "fora de linha (descontinuado)" in prompt
+    assert "não informe data, não prometa aviso, reserva nem lista de espera" in prompt
+    assert "Cite só essas; nunca invente nem busque outras" in prompt
+    assert "apresente-as como modelos equivalentes" in prompt
+    assert "Se alternatives_in_price_range for false" in prompt
+    assert "Nunca ofereça, aplique nem prometa essa promoção" in prompt
+    assert "use list_promotions" in prompt
+
+
 def test_prompt_covers_the_three_kinds_of_no(settings: Settings):
     prompt = build_system_prompt(settings)
 

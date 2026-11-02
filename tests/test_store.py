@@ -111,6 +111,12 @@ def test_find_product_tool_returns_formatted_prices(tools: dict[str, BaseTool]):
                 "original_price": "R$ 2.199,00",
                 "active_promotion": None,
                 "final_price": "R$ 2.199,00",
+                "availability": "available",
+                "availability_label": "disponível",
+                "ended_promotion": {
+                    "description": "Oferta Especial",
+                    "discount_percent": 12,
+                },
             }
         ]
     }
