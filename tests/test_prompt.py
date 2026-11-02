@@ -145,3 +145,23 @@ def test_prompt_sends_pix_and_installment_numbers_through_the_payment_tool(
     assert "get_payment_options" in prompt
     assert "nunca os calcule" in prompt
     assert "não calcule valores de parcelas" not in prompt
+
+
+def test_prompt_keeps_tracking_codes_free_of_carrier_suggestions(settings: Settings):
+    prompt = build_system_prompt(settings)
+
+    assert "nunca diga em que transportadora ou site consultá-lo" in prompt
+    assert "order_date é a data do pedido, não a data de envio" in prompt
+
+
+def test_prompt_forbids_hints_after_a_failed_identity_check(settings: Settings):
+    prompt = build_system_prompt(settings)
+
+    assert "nem dê dicas ou suposições sobre o que pode estar errado" in prompt
+
+
+def test_prompt_requires_the_delay_in_the_late_order_answer(settings: Settings):
+    prompt = build_system_prompt(settings)
+
+    assert "Seu pedido está atrasado há N dias" in prompt
+    assert "Uma resposta que só confirma o registro" in prompt
