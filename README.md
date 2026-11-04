@@ -77,15 +77,21 @@ Prices, Pix values, installments, deadlines, lateness and opening hours are comp
 ## Limitations and future work
 
 - No holiday calendar: on a weekday holiday Lia reports the store as open.
-- Model rate limits on the default account, and `kimi-k2.6` is planned to retire at the end of December 2026.
 - Only rate-limit errors are handled gracefully.
 - Escalation is a local file with no deduplication, and a failed turn after an escalation can record the case twice. The Identity Check has no attempt limit.
 - Alternatives for unavailable products match by category and price only. Search filters run in Python, fine at 65 products but not at scale.
 - Real model behavior is checked by reading the examples, not by automated tests.
 - SQLite files in a local volume support one instance only.
 
-With more time: LLM-as-judge evaluations on scripted conversations; the real clock with a holiday calendar; Postgres and authenticated sessions; a FastAPI backend with a streaming front end; vector retrieval once the policies outgrow the prompt; helpdesk integration; stronger identity checks.
+With more time: LLM-as-judge evaluations on scripted conversations; the real clock with a holiday calendar; Postgres and authenticated sessions; a FastAPI backend with a streaming front end; vector retrieval once the policies outgrow the prompt; stronger identity checks.
 
 ## AI-assisted workflow
 
-The project was built with Claude Code, Anthropic's command-line coding assistant, working in the repository from the first commit. Before any code, the assistant interviewed me about the brief, the data and the policy manual, one decision at a time, until requirements and edge cases were pinned down, and the outcome was a written plan and a glossary of domain terms used the same way in code, prompt and this README. The plan was cut into vertical slices, starting with a tracer bullet from the chat page through the agent, a tool and the database, and a short spike chose the model from measurements first. Each slice was delegated to sub-agents given the slice and the project conventions; I reviewed the result and committed by hand. Every slice was checked with the tests, a diff review and a live run against the real model. When a live run showed wrong behavior, the fix went into the prompt rule or the tool payload and the scenario was run again, instead of patching an answer (for example, the model repeated an earlier refusal instead of calling the order tool again with new data, which became an explicit rule). I read the generated examples myself, and problems found there went back into the prompt before a rerun.
+All the code was written with Claude Code, Anthropic's command-line coding assistant. My part was planning, directing and reviewing the work:
+
+1. **Plan.** Before any code, Claude Code interviewed me about the brief, the data and the policy manual, one decision at a time. The outcome was a written spec, a glossary of domain terms and three architecture decision records (ADRs), whose reasoning is restated in this README. A spike then chose the model from measurements.
+2. **Tickets.** The spec was cut into 16 tickets, each a vertical slice, starting with a tracer bullet from the chat page through the agent, a tool and the database.
+3. **Execution.** Each ticket was delegated to sub-agents. I checked every result with the tests, a diff review and a live run against the real model, then committed by hand.
+4. **Correction.** When a live run or a generated example showed wrong behavior, the fix went into the prompt rule or the tool payload and the scenario was run again, instead of patching an answer.
+
+The planning documents are private and are not in this repository.
